@@ -1,0 +1,4 @@
+docopt==0.6.2
+pyorient==1.5.4
+PyYAML==3.12
+wheel==0.24.0
