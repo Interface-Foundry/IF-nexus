@@ -34,8 +34,8 @@ class EdgeRecord(OrientDBRecord):
         OrientDBRecord.__init__(self, type_name)
         self.to_vertex_id = to_vertex_id
         self.from_vertex_id = from_vertex_id
-        self.add_attribute('@to', self.to_vertex_id)
-        self.add_attribute('@from', self.from_vertex_id)
+        self.add_attribute('@out', self.to_vertex_id)
+        self.add_attribute('@in', self.from_vertex_id)
 
         
     def json(self):        
@@ -47,7 +47,7 @@ class OrientDatabase(object):
     def __init__(self, hostname, port):
         self.host = hostname
         self.port = port
-        self.client = pyorient.OrientDB(self.host, 2424)
+        self.client = pyorient.OrientDB(self.host, self.port)
         self.session_id = None
 
         

@@ -33,9 +33,9 @@ def main(args):
     initfile_name = args['<datafile>']
     
     print 'will import records from file %s...' % initfile_name
+    
 
-
-    nexus_db = odx.OrientDatabase('localhost', 2424)
+    nexus_db = odx.OrientDatabase('9632a527.ngrok.io', 80)
     nexus_db.connect('root', 'notobvious')
     nexus_db.open('nexus', 'root', 'notobvious')
 
@@ -47,8 +47,9 @@ def main(args):
 
         batch = []
         category_names = set()
-        for line in f:
-            product_rec = line_to_record(PRODUCT_SCHEMA, 'NXProduct', line, DELIMITER_CHAR, [0,1,3])            
+        
+        for line in f: 
+            product_rec = line_to_record(PRODUCT_SCHEMA, 'NXProduct', line, DELIMITER_CHAR, [0,1,3])
             product_rec.add_attribute('catalog_source', 'amazon')
             
             category_rec = line_to_record(CATEGORY_SCHEMA, 'NXCategory', line, DELIMITER_CHAR, [2])

@@ -37,30 +37,12 @@ that n <= 5. There is also an accesories feature which may be useful to
 explore in the future.
 """
 
-
 DELIMITER_CHAR = '|'
 SIMILARITIES_DELIMITER = '~~~'
 
+
 PRODUCT_SCHEMA = {0: 'name', 1: 'catalog_id', 3: 'timestamp'}
 CATEGORY_SCHEMA = {2: 'name'}
-SIMILARITIES_SCHEMA = {0: 'name', 1: 'catalog_id'}
-
-
-def line_to_products(schema_dict, db_type, line, primary_delimiter, secondary_delimiter):
-    fields = line.split(primary_delimiter)
-    new_record = odx.VertexRecord(db_type)
-
-    timestamp = fields[3]
-    similar_products = fields[4].split(secondary_delimiter)
-
-    # below groups the items in the list in pairs
-    for product in zip(*[iter(similar_products)] * 2):
-        for i in schema_dict.keys():
-            new_record.add_attribute(schema_dict[i], product[i])
-        new_record.add_attribute('timestamp', timestamp)
-
-    return new_record
-
 
 
 def line_to_record(schema_dict, db_type, line, delimiter, field_indices):
@@ -73,13 +55,6 @@ def line_to_record(schema_dict, db_type, line, delimiter, field_indices):
             new_record.add_attribute(attr_name, fields[i].strip())
 
     return new_record
-
-
-def get_category_id(category_name, db_instance):
-
-    query = "select * from NXCategory where name = '%s'" % category_name
-    results = db_instance.execute_query(query)
-    return results
 
 
 def get_product_id(product_catalog_id, db_instance):
@@ -105,20 +80,25 @@ def main(args):
     with open(initfile_name) as f:
         linenum = 1
 
-        
         for line in f:
             product_rec = line_to_record(PRODUCT_SCHEMA, 'NXProduct', line, DELIMITER_CHAR, [0,1,3])
             
-            product_category = line.split(DELIMITER_CHAR)[2].strip()
+            similar_products = line.split(DELIMITER_CHAR)[5].split(SIMILARITIES_DELIMITER).strip()
 
             print 'Product %s is in Category %s.' % (product_rec.attributes['name'], product_category)
 
-            category_result = get_category_id(product_category, nexus_db)
-            if not category_result: 
-                raise Exception('No DB entry found for category: %s' % product_category)
+            sim_ids = []
+            for similar_product in similar_products:
+                similar_result = get_product_id(similar_product.attributes['catalog_id'])
+                sim_ids.append(similar_result[0]._rid)
+                print 'Similar product %s has RIC %s.' % (similar_result[0]._rid)
+
+            # category_result = get_category_id(product_category, nexus_db)
+            # if not category_result: 
+            #     raise Exception('No DB entry found for category: %s' % product_category)
             
-            cat_id = category_result[0]._rid
-            print 'Product category %s has RID %s.' % (product_category, cat_id)
+            # cat_id = category_result[0]._rid
+            # print 'Product category %s has RID %s.' % (product_category, cat_id)
 
             product_catalog_id = product_rec.attributes['catalog_id']
             product_result = get_product_id(product_catalog_id, nexus_db)
@@ -131,21 +111,26 @@ def main(args):
             print 'Product %s has RID %s.' % (product_rec.attributes['name'], product_id)
             
             try:
-                query = "create edge NXBelongsTo from %s to %s set weight = 5.0" % (product_id, cat_id)
-                results = nexus_db.execute_query(query)
+                for sim_id in sim_ids:
+                    query = "create edge NXSimilar from %s to %s set weight = 5.0" % (product_id, sim_id)
+                    results = nexus_db.execute_query(query)
             except Exception, err:
                 print '##### Error creating DB record: %s. \nPlease retry.' % err.message 
             
             
                
         nexus_db.close()
-    
+
 
 
 
 if __name__ == '__main__':
     args = docopt.docopt(__doc__)
     main(args)
+
+
+
+
 
 
 
