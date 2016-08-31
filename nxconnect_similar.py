@@ -44,10 +44,9 @@ PORT_NUMBER = config.PORT_NUMBER
 DELIMITER_CHAR = config.DELIMITER_CHAR
 SIMILARITIES_DELIMITER = config.SIMILARITIES_DELIMITER
 
+
 PRODUCT_SCHEMA = {0: 'catalog_id', 1: 'name', 3: 'timestamp'}
 CATEGORY_SCHEMA = {2: 'name'}
-SIMILARITIES_SCHEMA = {0: 'name', 1: 'catalog_id'}
-
 
 
 def line_to_record(schema_dict, db_type, line, delimiter, field_indices):
@@ -77,24 +76,6 @@ def line_to_record(schema_dict, db_type, line, delimiter, field_indices):
     return new_record
 
 
-def get_category_id(category_name, db_instance):
-    """
-    @param category_name: String containing the unique name for the particular 
-        product 
-    @param db_instance: Instance of the database connection
-
-    returns a list containing pyorient objects reponses from the database. Each
-    item in the list corresponds to one NXCategory.
-
-    This function maps the unique category name to the internal RID given
-    by the database. The RID can be used to create edges.
-    """
-
-    query = "select * from NXCategory where name = '%s'" % category_name
-    results = db_instance.execute_query(query)
-    return results
-
-
 def get_product_id(product_catalog_id, db_instance):
     """
     @param product_catalog_id: String containing the unique catalog ID for the
@@ -113,13 +94,48 @@ def get_product_id(product_catalog_id, db_instance):
     return results
 
 
+def update_edge(rid_1, rid_2, db_instance):
+    """
+    @param rid_1: String containing the first RID
+    @param rid_2: String containing the second RID
+    @param db_instance: The instance of the database connection
+
+    returns the results from either updating the NXSimilar edge between the 
+    two items specified by rid_1 and rid_2.
+
+    This function first checks to see if there is an edge betweent he RIDs. If
+    there is an edge, then it increments the weight of the edge by 1.0. If 
+    there is not an edge then it makes an edge with default weight 1.0 from
+    NXProduct at rid_1 to the NXProduct at rid_2.
+
+    This function also doubles as an edge maker.
+    """
+    query = "select * from NXSimilar where (in = '%s' OR in = '%s') AND (out = '%s' or out = '%s')" % (rid_1, rid_2, rid_1, rid_2)
+    results = db_instance.execute_query(query)
+    if results:
+        edge_rid = results[0]._rid
+        query = "update %s increment weight = 1" % edge_rid
+        # query = "update increment weight = 1 where @rid = '%s'" % edge_rid
+        results = db_instance.execute_query(query)
+    else:
+        query = "create edge NXSimilar from %s to %s set weight = 1.0" % (rid_1, rid_2)
+        results = db_instance.execute_query(query)
+    
+    return results
+
+
+
+
 def main(args):
+
     """
-    This program reads through the <datafile> line by line and gets the product
-    RID and the category RID using get_product_id() and get_category_id() 
-    respectively. Using these two RIDs, it calls a create edge between them 
-    from the product RID to the category RID with a default weight of 5.0
+    The program will read from the <datafile> line by line and identify the 
+    main product and the similar products associated with the main product.
+    Then the program will locate the NXProduct vertices associated with the
+    main product and the similar products and perform update_edge() for each
+    similar product to the main product. 
     """
+
     initfile_name = args['<datafile>']
     
     print 'generating connections from file %s...' % initfile_name
@@ -132,23 +148,22 @@ def main(args):
     pmgr = odx.OrientDBPersistenceManager(nexus_db)
     
     batch = []
+    sim_ids = []
     with open(initfile_name) as f:
         linenum = 1
 
-        
         for line in f:
             product_rec = line_to_record(PRODUCT_SCHEMA, 'NXProduct', line, DELIMITER_CHAR, [0,1,3])
             
-            product_category = line.split(DELIMITER_CHAR)[2].strip()
+            similar_products = line.split(DELIMITER_CHAR)[5].strip().split(SIMILARITIES_DELIMITER)
 
-            print 'Product %s is in Category %s.' % (product_rec.attributes['name'], product_category)
+            sim_ids = []
+            for sim_id in similar_products:
+                if sim_id:
+                    similar_result = get_product_id(sim_id, nexus_db)
+                    sim_ids.append(similar_result[0]._rid)
+                    print 'Similar product %s has RID %s.' % (similar_result[0].name, similar_result[0]._rid)
 
-            category_result = get_category_id(product_category, nexus_db)
-            if not category_result: 
-                raise Exception('No DB entry found for category: %s' % product_category)
-            
-            cat_id = category_result[0]._rid
-            print 'Product category %s has RID %s.' % (product_category, cat_id)
 
             product_catalog_id = product_rec.attributes['catalog_id']
             product_result = get_product_id(product_catalog_id, nexus_db)
@@ -160,22 +175,28 @@ def main(args):
             
             print 'Product %s has RID %s.' % (product_rec.attributes['name'], product_id)
             
-            try:
-                query = "create edge NXBelongsTo from %s to %s set weight = 5.0" % (product_id, cat_id)
-                results = nexus_db.execute_query(query)
-            except Exception, err:
-                print '##### Error creating DB record: %s. \nPlease retry.' % err.message 
+            for sim_id in sim_ids:
+                try:
+                    update_edge(product_id, sim_id, nexus_db)
+
+                except Exception, err:
+                    print '##### Error creating DB record: %s. \nPlease retry.' % err.message         
             
+        
             
                
         nexus_db.close()
-    
+
 
 
 
 if __name__ == '__main__':
     args = docopt.docopt(__doc__)
     main(args)
+
+
+
+
 
 
 

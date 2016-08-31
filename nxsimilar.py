@@ -8,6 +8,7 @@
 import docopt
 import odx
 import yaml
+import config
 
 """
 The format of the amazon string is:
@@ -37,16 +38,30 @@ that n <= 5. There is also an accesories feature which may be useful to
 explore in the future.
 """
 
+IP_ADDRESS = config.IP_ADDRESS
+PORT_NUMBER = config.PORT_NUMBER
 
-DELIMITER_CHAR = '|'
-SIMILARITIES_DELIMITER = '~~~'
+DELIMITER_CHAR = config.DELIMITER_CHAR
+SIMILARITIES_DELIMITER = config.SIMILARITIES_DELIMITER
 
-PRODUCT_SCHEMA = {0: 'name', 1: 'catalog_id', 3: 'timestamp'}
+PRODUCT_SCHEMA = {0: 'catalog_id', 1: 'name', 3: 'timestamp'}
 CATEGORY_SCHEMA = {2: 'name'}
 SIMILARITIES_SCHEMA = {0: 'name', 1: 'catalog_id', 2: 'timestamp'}
 
 
 def line_to_products(schema_dict, db_type, line, primary_delimiter, secondary_delimiter):
+    """
+    @param schema_dict: dictionary mapping indices (keys) to properties in the
+        graph schema.
+    @param db_type: String of the name of the database object such as 
+        NXProduct, NXCategory, NXBelongsTo, or NXSimilar
+    @param line: String containing product data in the format described above
+    @param primary_delimiter: String containing the delimiter for the product fields
+    @param secondary_delimiter: String containing the delimiter for the similar
+        product fields
+
+    returns a list of VertexRecord objects, one for each similar item    
+    """
     fields = line.split(primary_delimiter)
     new_records = []
 
@@ -56,19 +71,33 @@ def line_to_products(schema_dict, db_type, line, primary_delimiter, secondary_de
 
     # below groups the items in the list in pairs
     # this is hard coded right now
-    for name, asin in zip(similar_products_names, similar_products_asins):
-        new_record = odx.VertexRecord(db_type)
-        new_record.add_attribute(schema_dict[0], name)
-        new_record.add_attribute(schema_dict[1], asin)
-        new_record.add_attribute(schema_dict[2], timestamp)
-        new_rec.add_attribute('catalog_source', 'amazon')
+    if fields[4]:
+        for name, asin in zip(similar_products_names, similar_products_asins):
+            new_record = odx.VertexRecord(db_type)
+            new_record.add_attribute(schema_dict[0], name.strip())
+            new_record.add_attribute(schema_dict[1], asin.strip())
+            new_record.add_attribute(schema_dict[2], timestamp)
+            new_record.add_attribute('catalog_source', 'amazon')
 
-        new_records.append(new_record)
+            new_records.append(new_record)
 
-    return new_records
+        return new_records
+    
+    return []
 
 
 def get_product_id(product_catalog_id, db_instance):
+    """
+    @param product_catalog_id: String containing the unique catalog ID for the
+        particular product 
+    @param db_instance: Instance of the database connection
+
+    returns a list containing pyorient objects reponses from the database. Each
+    item in the list corresponds to one product.
+
+    This function maps the unique product catalog_id to the internal RID given
+    by the database. The RID can be used to create edges.
+    """
 
     query = "select * from NXProduct where catalog_id = '%s'" % product_catalog_id
     results = db_instance.execute_query(query)
@@ -77,11 +106,16 @@ def get_product_id(product_catalog_id, db_instance):
 
 
 def main(args):
+    """
+    This program reads <datafile> line by line and applies line_to_products()
+    on each line and adds the similar items as NXProducts into the graph
+    database.
+    """
     initfile_name = args['<datafile>']
     
     print 'generating connections from file %s...' % initfile_name
 
-    nexus_db = odx.OrientDatabase('14d1f37b.ngrok.io', 2480)
+    nexus_db = odx.OrientDatabase(IP_ADDRESS, PORT_NUMBER)
     nexus_db.connect('root', 'notobvious')
     nexus_db.open('nexus', 'root', 'notobvious')
 
@@ -104,12 +138,11 @@ def main(args):
                     similar_rec.add_attribute('catalog_source', 'amazon')
                     print 'generating JSON record: %s' % similar_rec.json()
                 
-                batch.append(similar_rec)
-            
-        try:
-            pmgr.save_batch_txn(batch)
-        except Exception, err:
-            print '##### Error creating DB record: [ %s ]. \nPlease retry data file.' % err.message
+                    batch.append(similar_rec)
+                try:
+                    pmgr.save_record_txn(similar_rec)
+                except Exception, err:
+                    print '##### Error creating DB record: [ %s ]. \nPlease retry data file for product %s' % (err.message, similar_rec.json())
 
         
                
